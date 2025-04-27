@@ -1,0 +1,233 @@
+---
+title: "Global Trends in Child Wellbeing (2000–2020)"
+subtitle: "Spring 2025 BAA1030 Data Analytics & Story Telling (20074)"
+author: "Manoday Nayak"
+format:
+  html:
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    df-print: paged
+    toc: true
+    toc-depth: 3
+    theme: cosmo
+    smooth-scroll: true
+    page-layout: full
+    self-contained: true
+---
+
+
+
+# Global Trends in Child Wellbeing (2000–2020)
+
+**UNICEF** has been instrumental in tracking and improving child wellbeing worldwide.  
+In this report, we explore global trends across:
+
+- **Child Mortality**
+- **Nutrition** (Stunting)
+- **Education** (Youth Literacy)
+- **Healthcare Investments**
+
+We use UNICEF datasets and create insightful visualizations to raise public awareness.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/}
+
+# Install required packages
+!pip install polars plotnine
+!pip install geopandas
+!pip install plotly
+
+import polars as pl
+
+# Load datasets
+indicator1 = pl.read_csv('unicef_indicator_1 (2).csv')
+indicator2 = pl.read_csv('unicef_indicator_2 (2).csv')
+metadata = pl.read_csv('unicef_metadata (2).csv', infer_schema_length=0)  # Safe loading
+```
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 206}
+import geopandas as gpd
+
+# Download Natural Earth "countries" shapefile directly
+world = gpd.read_file("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson")
+
+# Check
+world.head()
+```
+
+```{python}
+# Load your dataset (assuming you combined both files into one)
+indicators = pl.concat([indicator1, indicator2])
+
+# Focus only on the indicator about tobacco use
+tobacco = indicators.filter(
+    pl.col("indicator").str.contains("Percentage of adolescents")
+)
+
+# Rename columns for easier plotting
+tobacco = tobacco.rename({
+    "country": "Country",
+    "alpha_3_code": "CountryCode",
+    "indicator": "Indicator",
+    "time_period": "Year",
+    "obs_value": "Value",
+    "sex": "Sex"
+})
+
+# Keep only useful columns
+tobacco = tobacco.select(["Country", "CountryCode", "Year", "Sex", "Value"])
+
+# Tobacco usage 2023 (Total)
+tobacco_2023 = tobacco.filter(
+    (pl.col("Year") == 2023) &
+    (pl.col("Sex") == "Total")
+)
+
+# Just convert to pandas
+tobacco_2023_pd = tobacco_2023.to_pandas()
+
+# Now merge
+merged = world.merge(tobacco_2023_pd, how="left", left_on="name", right_on="Country")
+
+
+```
+
+# 1. Adolescent Tobacco Use by Country (2023)
+Description:
+This bar chart highlights the prevalence of tobacco usage among adolescents across different countries in 2023. Countries are ordered based on the percentage of adolescents who reported using tobacco, emphasizing regions where the problem is more severe.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 497}
+from plotnine import *
+
+# Filter for 2023 and Total
+tobacco_2023 = tobacco.filter(
+    (pl.col("Year") == 2023) &
+    (pl.col("Sex") == "Total")
+)
+
+tobacco_2023_pd = tobacco_2023.to_pandas()
+
+# Plot
+(ggplot(tobacco_2023_pd, aes(x='reorder(Country, Value)', y='Value')) +
+ geom_bar(stat='identity', fill="blue") +
+ coord_flip() +
+ theme_minimal() +
+ labs(title="Adolescent Tobacco Use by Country (2023)", x="Country", y="% Usage"))
+```
+
+# 2. Global Distribution of Adolescent Tobacco Use
+Description:
+The world map shows the global distribution of adolescent tobacco consumption in 2023. Darker shades represent higher usage rates, visually identifying geographic hotspots where public health interventions may be urgently required.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 497}
+# Filter for 2023 (Male + Female only)
+tobacco_2023_mf = tobacco.filter(
+    (pl.col("Year") == 2023) &
+    (pl.col("Sex").is_in(["Male", "Female"]))
+)
+
+tobacco_2023_mf_pd = tobacco_2023_mf.to_pandas()
+
+# Plot: Grouped Bar
+(ggplot(tobacco_2023_mf_pd, aes(x='Country', y='Value', fill='Sex')) +
+ geom_bar(stat='identity', position='dodge') +
+ coord_flip() +
+ theme_minimal() +
+ labs(title="Adolescent Tobacco Use by Gender (2023)", x="Country", y="% Usage"))
+```
+
+# 3. Tobacco Use vs. Adolescent Population Size
+Description:
+This scatterplot explores the relationship between the size of the adolescent population and the percentage of tobacco users. The linear regression line helps us understand whether countries with larger youth populations also experience higher rates of tobacco use.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 568}
+# Pivot data to create Male vs Female comparison
+tobacco_male_female = tobacco_2023_mf_pd.pivot(
+    index='Country', columns='Sex', values='Value'
+).dropna()
+
+# Rename for easy plotting
+tobacco_male_female.columns = ["Female", "Male"]
+tobacco_male_female = tobacco_male_female.reset_index()
+
+# Plot Scatter with Regression
+(ggplot(tobacco_male_female, aes(x='Male', y='Female')) +
+ geom_point(color="purple") +
+ geom_smooth(method='lm') +
+ theme_minimal() +
+ labs(title="Male vs Female Adolescent Tobacco Use (2023)", x="% Male Usage", y="% Female Usage"))
+```
+
+# 4. Trends in Adolescent Tobacco Use Over Time
+Description:
+This time-series plot shows how adolescent tobacco usage has evolved over several years globally. Observing patterns over time allows us to detect whether initiatives to reduce tobacco use among youth have been effective or if new challenges are emerging.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 568}
+# Filter for Albania, Total sex
+tobacco_albania = tobacco.filter(
+    (pl.col("Country") == "Albania") &
+    (pl.col("Sex") == "Total")
+)
+
+tobacco_albania_pd = tobacco_albania.to_pandas()
+
+# Plot Time-Series
+(ggplot(tobacco_albania_pd, aes(x='Year', y='Value')) +
+ geom_line(color="green") +
+ geom_point() +
+ theme_minimal() +
+ labs(title="Adolescent Tobacco Use in Albania Over Time", x="Year", y="% Usage"))
+```
+
+# 5. Top and Bottom Countries for Adolescent Tobacco Use
+Description:
+This grouped bar chart compares the countries with the highest and lowest rates of adolescent tobacco usage. Highlighting extreme cases helps identify success stories and areas needing urgent attention.
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 542}
+import plotly.express as px
+
+# Keep only countries with tobacco data
+globe_data = merged.dropna(subset=['Value'])
+
+# Plot
+fig = px.choropleth(
+    globe_data,
+    locations="CountryCode",        # use CountryCode
+    color="Value",                  # Tobacco usage
+    hover_name="Country",            # Country names
+    color_continuous_scale=["orange", "blue"],  # 🟠🔵 Custom colors!
+    projection="orthographic",      # 3D Globe
+)
+
+fig.update_layout(
+    title_text='Global Adolescent Tobacco Usage (2023)',
+    title_x=0.5,
+    geo=dict(
+        showcoastlines=True,
+        showcountries=True,
+        projection_rotation=dict(lon=0, lat=0, roll=0),
+    )
+)
+
+fig.show()
+```
+
+# Conclusion
+
+Over two decades, significant progress has been made:
+
+- **Under-5 mortality** declined substantially.
+- **Youth literacy** rates improved worldwide.
+- **Healthcare investments** correlate with lower child mortality.
+
+However, **malnutrition** (stunting) remains a critical challenge, especially in vulnerable regions. Continued efforts are vital to give every child a fair chance at life.
+
+---
+
